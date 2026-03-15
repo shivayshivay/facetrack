@@ -43,7 +43,8 @@ def create_app():
     app.config["CLOUDINARY_API_SECRET"]    = os.getenv("CLOUDINARY_API_SECRET")
     app.config["MAX_CONTENT_LENGTH"]       = 16 * 1024 * 1024
 
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
     JWTManager(app)
     init_db(app)
 

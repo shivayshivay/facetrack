@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: facetrack-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+        placeholder: "mongodb+srv://user:pass@cluster.mongodb.net/facetrack"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: AWS_ACCESS_KEY
+        sync: false
+      - key: AWS_SECRET_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-south-1
+      - key: AWS_COLLECTION_ID
+        value: facetrack-students
+      - key: MSG91_API_KEY
+        sync: false
+      - key: MSG91_SENDER_ID
+        value: FTRACK
+      - key: FCM_SERVER_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+        placeholder: "https://your-site-name.netlify.app"
