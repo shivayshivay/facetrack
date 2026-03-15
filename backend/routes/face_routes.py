@@ -62,47 +62,44 @@ def match():
     b64 = d.get("image_base64")
     if not b64: return jsonify({"error": "image_base64 required"}), 400
     try:
-        # --- MOCK IMPLEMENTATION FOR LOCAL TESTING ---
-        # We first check if a face is present in the image using OpenCV.
-        # If yes, we randomly pick a student from the DB to simulate a successful face scan.
-        import random
-        import cv2
-        import numpy as np
+        # Search for face in the Rekognition collection
+        client = _client()
+        resp = client.search_faces_by_image(
+            CollectionId=_col(), 
+            Image={"Bytes": base64.b64decode(b64)},
+            MaxFaces=1, 
+            FaceMatchThreshold=80 # Minimum 80% confidence
+        )
         
-        try:
-            # Decode the base64 image
-            np_arr = np.frombuffer(base64.b64decode(b64), np.uint8)
-            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
-            # Load Haar Cascade and detect faces
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4)
-            
-            # If no face is detected, return an error message
-            if len(faces) == 0:
-                return jsonify({"matched": False, "message": "No face detected in the frame. Please look at the camera."})
-                
-        except Exception as e:
-            return jsonify({"matched": False, "message": f"Error detecting face locally: {str(e)}"})
+        matches = resp.get("FaceMatches", [])
+        if not matches:
+            return jsonify({
+                "matched": False, 
+                "message": "Face not recognized. Please ensure you are enrolled and look directly at the camera."
+            })
 
-        # Get all students
-        students = list(mongo.db.students.find())
-        if not students:
-            return jsonify({"matched": False, "message": "No students in database to match against"})
+        # ExternalImageId was set to student_id during enrollment
+        sid = matches[0]["Face"]["ExternalImageId"]
+        confidence = matches[0]["Similarity"]
+        
+        s = mongo.db.students.find_one({"_id": ObjectId(sid)})
+        if not s:
+            return jsonify({"matched": False, "message": "Matched student record not found in database"}), 404
             
-        # Pick a random student
-        s = random.choice(students)
-        sid = str(s["_id"])
-        
-        # Simulate a slight delay to make it feel real
-        import time
-        time.sleep(0.5)
-        
-        return jsonify({"matched": True, "confidence": round(random.uniform(85.0, 99.9), 2),
-                        "student": {"id": sid, "name": s["name"],
-                                    "roll_no": s["roll_no"], "photo_url": s.get("photo_url","")}})
+        return jsonify({
+            "matched": True, 
+            "confidence": round(confidence, 2),
+            "student": {
+                "id": sid, 
+                "name": s["name"],
+                "roll_no": s["roll_no"], 
+                "photo_url": s.get("photo_url","")
+            }
+        })
     except Exception as e:
+        # Check if it's an AWS Rekognition "No face detected" exception
+        if "InvalidParameterException" in str(e):
+             return jsonify({"matched": False, "message": "No face detected in the frame. Please look at the camera."})
         return jsonify({"error": str(e)}), 500
 
 # ── Remove face from collection ───────────────────────────────────────────────

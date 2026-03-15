@@ -68,10 +68,10 @@ export function StudentDashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.student_id) return
     Promise.all([
-      attendanceAPI.stats(user.id),
-      attendanceAPI.byStudent(user.id),
+      attendanceAPI.stats(user.student_id),
+      attendanceAPI.byStudent(user.student_id),
     ]).then(([s, h]) => { setStats(s); setHistory(h) })
       .catch(e => toast.error(e))
       .finally(() => setLoading(false))
@@ -176,10 +176,10 @@ export function StudentAttendance() {
   const [filter,  setFilter]  = useState('all')
 
   useEffect(() => {
-    if (!user?.id) return
-    attendanceAPI.byStudent(user.id)
+    if (!user?.student_id) return
+    attendanceAPI.byStudent(user.student_id)
       .then(setRecords).catch(e => toast.error(e)).finally(() => setLoading(false))
-  }, [user?.id])
+  }, [user?.student_id])
 
   const filtered = filter === 'all' ? records : records.filter(r => r.status === filter)
 
@@ -234,20 +234,20 @@ export function StudentLeave() {
   const [submitting, setSubmitting] = useState(false)
 
   const load = async () => {
-    if (!user?.id) return
+    if (!user?.student_id) return
     setLoading(true)
-    try { setLeaves(await leaveAPI.list({ student_id: user.id })) }
+    try { setLeaves(await leaveAPI.list({ student_id: user.student_id })) }
     catch(e) { toast.error(e) }
     finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [user?.id])
+  useEffect(() => { load() }, [user?.student_id])
 
   const submit = async e => {
     e.preventDefault()
     if (!form.date || !form.reason) { toast.error('Date and reason required'); return }
     setSubmitting(true)
     try {
-      await leaveAPI.submit({ ...form, student_id: user.id })
+      await leaveAPI.submit({ ...form, student_id: user.student_id })
       toast.success('Leave request submitted!')
       setForm({ date:'', subject:'All Periods', reason:'' })
       load()
@@ -328,7 +328,9 @@ export function StudentProfile() {
       setPhotoPreview(ev.target.result)
       setUploading(true)
       try {
-        // Would need to look up student_id from students collection
+        if (!user?.student_id) throw new Error('Student record not linked to user account')
+        await studentAPI.uploadPhoto(user.student_id, b64)
+        await faceAPI.enroll(user.student_id, b64)
         toast.success('Photo uploaded & face enrolled in recognition system!')
       } catch (err) { toast.error(err) }
       finally { setUploading(false) }
@@ -352,10 +354,12 @@ export function StudentProfile() {
         <div onClick={() => fileRef.current.click()}
           className="w-24 h-24 rounded-full bg-green/20 text-green text-4xl font-extrabold
                      flex items-center justify-center mx-auto mb-4 cursor-pointer hover:bg-green/30 transition-colors
-                     border-2 border-dashed border-green/40 relative group">
+                     border-2 border-dashed border-green/40 relative group overflow-hidden">
           {photoPreview
-            ? <img src={photoPreview} alt="" className="w-full h-full rounded-full object-cover" />
-            : user?.name?.charAt(0).toUpperCase()
+            ? <img src={photoPreview} alt="" className="w-full h-full object-cover" />
+            : user?.photo_url 
+              ? <img src={user.photo_url} alt="" className="w-full h-full object-cover" />
+              : user?.name?.charAt(0).toUpperCase()
           }
           <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <span className="text-white text-xs font-bold">Update Photo</span>

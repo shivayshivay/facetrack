@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { authAPI } from '../../services/api'
+import { useAuth } from '../../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { Spinner } from '../../components/shared/UI'
 
 export default function RegisterPage() {
+  const { register } = useAuth()
   const navigate  = useNavigate()
   const [role,    setRole]    = useState('teacher')
   const [form,    setForm]    = useState({ name:'', email:'', phone:'', password:'', class_section:'' })
@@ -14,12 +15,10 @@ export default function RegisterPage() {
     e.preventDefault()
     setLoading(true)
     try {
-      const payload = { name: form.name,email: form.email, phone: form.phone, password: form.password, role }
+      const payload = { name: form.name, email: form.email, phone: form.phone, password: form.password, role }
       if (role === 'teacher') { payload.email = form.email; payload.class_section = form.class_section }
       else                    { payload.phone = form.phone }
-      const data = await authAPI.register(payload)
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('user',  JSON.stringify(data.user))
+      const user = await register(payload)
       toast.success('Account created!')
       navigate(role === 'teacher' ? '/teacher' : '/student')
     } catch (err) {

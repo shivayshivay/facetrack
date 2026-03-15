@@ -52,6 +52,7 @@ def student_doc(name, roll_no, phone, class_section,
         "class_section": class_section, "photo_url": photo_url,
         "face_id": face_id, "is_verified": is_verified,
         "parent_phone": parent_phone, "parent_name": parent_name,
+        "attendance_count": 0, "total_periods": 0,
         "created_at": datetime.utcnow(), "updated_at": datetime.utcnow(),
     }
 

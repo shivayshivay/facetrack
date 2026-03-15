@@ -29,6 +29,13 @@ def mark():
                          today, d["subject"], "present", teacher_id, d.get("confidence"))
     mongo.db.attendance.insert_one(doc)
     mongo.db.periods.update_one({"_id": ObjectId(d["period_id"])}, {"$inc": {"present_count":1}})
+    
+    # Sync with student record
+    mongo.db.students.update_one(
+        {"_id": ObjectId(d["student_id"])},
+        {"$inc": {"attendance_count": 1, "total_periods": 1}, "$set": {"updated_at": datetime.utcnow()}}
+    )
+
     s = mongo.db.students.find_one({"_id": ObjectId(d["student_id"])})
     return jsonify({"message": "Present", "student_name": s["name"] if s else ""}), 201
 
@@ -52,6 +59,14 @@ def close_session():
         status = "leave" if on_leave else "absent"
         mongo.db.attendance.insert_one(
             attendance_doc(s["_id"], ObjectId(pid), today, period["subject"], status, "auto"))
+        
+        # Sync with student record
+        upd = {"$inc": {"total_periods": 1}, "$set": {"updated_at": datetime.utcnow()}}
+        if status == "present": # Should rarely happen here but for safety
+            upd["$inc"]["attendance_count"] = 1
+        
+        mongo.db.students.update_one({"_id": s["_id"]}, upd)
+
         absent_count += 1
         if status == "absent":
             _notify_absent(s, period)
@@ -76,8 +91,27 @@ def update(rid):
     d = request.get_json()
     if d.get("status") not in ("present","absent","leave"):
         return jsonify({"error": "status must be present/absent/leave"}), 400
+    old_rec = mongo.db.attendance.find_one({"_id": ObjectId(rid)})
+    if not old_rec:
+        return jsonify({"error": "Record not found"}), 404
+        
+    old_status = old_rec.get("status")
+    new_status = d["status"]
+    
+    if old_status != new_status:
+        # Sync with student record
+        inc = 0
+        if old_status == "present": inc = -1
+        elif new_status == "present": inc = 1
+        
+        if inc != 0:
+            mongo.db.students.update_one(
+                {"_id": old_rec["student_id"]},
+                {"$inc": {"attendance_count": inc}, "$set": {"updated_at": datetime.utcnow()}}
+            )
+
     mongo.db.attendance.update_one({"_id": ObjectId(rid)},
-        {"$set": {"status": d["status"], "marked_by": get_jwt_identity(),
+        {"$set": {"status": new_status, "marked_by": get_jwt_identity(),
                   "updated_at": datetime.utcnow()}})
     return jsonify({"message": "Updated"})
 

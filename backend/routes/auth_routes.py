@@ -10,9 +10,17 @@ from models.database import mongo
 auth_bp = Blueprint("auth", __name__)
 
 def _pub(u):
-    return {"id": str(u["_id"]), "name": u["name"], "email": u.get("email",""),
+    out = {"id": str(u["_id"]), "name": u["name"], "email": u.get("email",""),
             "phone": u.get("phone",""), "role": u["role"],
             "class_section": u.get("class_section","")}
+    if u["role"] == "student" and u.get("phone"):
+        s = mongo.db.students.find_one({"phone": u["phone"]})
+        if s:
+            out["student_id"] = str(s["_id"])
+            out["photo_url"] = s.get("photo_url", "")
+            out["class_section"] = s.get("class_section", out["class_section"])
+            out["is_verified"] = s.get("is_verified", False)
+    return out
 
 @auth_bp.post("/register")
 def register():
@@ -30,15 +38,36 @@ def register():
     else:
         if not d.get("phone"):
             return jsonify({"error": "phone required for students"}), 400
-        if not mongo.db.students.find_one({"phone": d["phone"]}):
-            return jsonify({"error": "Phone not in college records. Ask your teacher to add you first."}), 404
+        
+        # Check if user already exists
         if mongo.db.users.find_one({"phone": d["phone"]}):
             return jsonify({"error": "Phone already registered"}), 409
+            
+        # Check if student record exists, if not create a pending one
+        from models.database import student_doc
+        s_rec = mongo.db.students.find_one({"phone": d["phone"]})
+        if not s_rec:
+            # Auto-create verified student record
+            new_s = student_doc(d["name"], "PENDING", d["phone"], d.get("class_section", "UNASSIGNED"), is_verified=True)
+            s_res = mongo.db.students.insert_one(new_s)
+            student_id = str(s_res.inserted_id)
+        else:
+            student_id = str(s_rec["_id"])
 
-    doc = {"name": d["name"], "email": d.get("email",""), "phone": d.get("phone",""),
-           "password": generate_password_hash(d["password"]),
-           "role": d["role"], "class_section": d.get("class_section",""),
-           "created_at": datetime.utcnow()}
+    doc = {
+        "name": d["name"],
+        "password": generate_password_hash(d["password"]),
+        "role": d["role"],
+        "class_section": d.get("class_section", ""),
+        "created_at": datetime.utcnow()
+    }
+    if d.get("email"): doc["email"] = d["email"]
+    if d.get("phone"): doc["phone"] = d["phone"]
+    
+    # Store student_id link for students
+    if d["role"] == "student":
+        doc["student_id"] = student_id
+
     r = mongo.db.users.insert_one(doc)
     doc["_id"] = r.inserted_id
     token = create_access_token(identity=str(r.inserted_id))

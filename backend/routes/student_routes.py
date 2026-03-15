@@ -51,7 +51,7 @@ def add_student():
         d["name"], d["roll_no"], d["phone"], d["class_section"],
         parent_phone=d.get("parent_phone",""),
         parent_name=d.get("parent_name",""),
-        is_verified=d.get("is_verified", False)
+        is_verified=True # Make student active by default
     )
     r = mongo.db.students.insert_one(doc)
     doc["_id"] = r.inserted_id
@@ -76,13 +76,20 @@ def bulk_upload():
                 row["phone"].strip(), row["class_section"].strip(),
                 parent_name=row.get("parent_name","").strip(),
                 parent_phone=row.get("parent_phone","").strip(),
-                is_verified=True
+                is_verified=True # Make student active by default
             )
             mongo.db.students.insert_one(doc)
             inserted += 1
         except Exception as e:
             errors.append(f"Row {i}: {e}")
-    return jsonify({"inserted": inserted, "skipped": skipped, "errors": errors})
+    return jsonify({"inserted": inserted, "skipped": skipped, "message": f"Successfully imported {inserted} students", "errors": errors})
+
+# ── Verify All Students ───────────────────────────────────────────────────────
+@student_bp.post("/verify-all")
+@jwt_required()
+def verify_all():
+    res = mongo.db.students.update_many({"is_verified": False}, {"$set": {"is_verified": True, "updated_at": datetime.utcnow()}})
+    return jsonify({"message": f"Verified {res.modified_count} students"})
 
 # ── Get one ───────────────────────────────────────────────────────────────────
 @student_bp.get("/<sid>")
@@ -148,22 +155,54 @@ def upload_photo(sid):
 @jwt_required()
 def update_student(sid):
     d = request.get_json()
-    upd = {k: d[k] for k in ["name","parent_phone","parent_name","class_section"] if k in d}
+    fields = ["name", "roll_no", "phone", "class_section", "parent_name", "parent_phone", "is_verified"]
+    upd = {k: d[k] for k in fields if k in d}
     upd["updated_at"] = datetime.utcnow()
-    mongo.db.students.update_one({"_id": ObjectId(sid)}, {"$set": upd})
-    return jsonify({"message": "Updated"})
+    try:
+        mongo.db.students.update_one({"_id": ObjectId(sid)}, {"$set": upd})
+        return jsonify({"message": "Updated"})
+    except errors.InvalidId:
+        return jsonify({"error": "Invalid student ID"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 @student_bp.delete("/<sid>")
 @jwt_required()
 def delete_student(sid):
     try:
-        _id = ObjectId(sid)  # Validate ObjectId
+        _id = ObjectId(sid)
     except errors.InvalidId:
         return jsonify({"error": "Invalid student ID"}), 400
 
-    result = mongo.db.students.delete_one({"_id": _id})
-    if result.deleted_count == 0:
+    s = mongo.db.students.find_one({"_id": _id})
+    if not s:
         return jsonify({"error": "Student not found"}), 404
 
-    return jsonify({"message": "Student deleted"}), 200
+    # 1. Cleanup Rekognition (if enrolled)
+    if s.get("face_id"):
+        try:
+            from routes.face_routes import _client as face_client, _col as face_col
+            c = face_client()
+            c.delete_faces(CollectionId=face_col(), FaceIds=[s["face_id"]])
+        except Exception as e:
+            print(f"[Cleanup] Rekognition error: {e}")
+
+    # 2. Cleanup Cloudinary (if photo exists)
+    if s.get("photo_url"):
+        try:
+            cloudinary.uploader.destroy(f"facetrack/students/student_{sid}")
+        except Exception as e:
+            print(f"[Cleanup] Cloudinary error: {e}")
+
+    # 3. Cleanup Attendance & Leave Requests
+    mongo.db.attendance.delete_many({"student_id": _id})
+    mongo.db.leave_requests.delete_many({"student_id": _id})
+    
+    # 4. Cleanup Notifications (optional, but good for "permanent" delete)
+    mongo.db.notifications.delete_many({"user_id": sid})
+
+    # 5. Finally, delete the student
+    result = mongo.db.students.delete_one({"_id": _id})
+    
+    return jsonify({"message": "Student and all related data deleted permanently"}), 200

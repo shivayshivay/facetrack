@@ -4,14 +4,16 @@ import { StatusBadge, Spinner, Empty, Modal, ProgressBar, SectionHeader, Avatar 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import toast from 'react-hot-toast'
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 // STUDENTS PAGE
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 export function TeacherStudents() {
   const [students, setStudents] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [search,   setSearch]   = useState('')
   const [showAdd,  setShowAdd]  = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name:'', roll_no:'', phone:'', class_section:'', parent_name:'', parent_phone:'' })
   const [adding, setAdding] = useState(false)
   const fileRef = useRef()
@@ -25,37 +27,60 @@ export function TeacherStudents() {
   useEffect(() => { load() }, [])
 
   const addStudent = async (e) => {
-  e.preventDefault()
-  setAdding(true)
-
-  try {
-    await studentAPI.add(form)
-    toast.success('Student added!')
-    setShowAdd(false)
-    load()
-  } 
-  catch(e) {
-    toast.error(e)
-  } 
-  finally {
-    setAdding(false)
+    e.preventDefault()
+    setAdding(true)
+    try {
+      await studentAPI.add(form)
+      toast.success('Student added!')
+      setShowAdd(false)
+      setForm({ name:'', roll_no:'', phone:'', class_section:'', parent_name:'', parent_phone:'' })
+      load()
+    } 
+    catch(e) { toast.error(e) } 
+    finally { setAdding(false) }
   }
- }
+
+  const editStudent = async (e) => {
+    e.preventDefault()
+    setAdding(true)
+    try {
+      await studentAPI.update(editingId, form)
+      toast.success('Student updated!')
+      setShowEdit(false)
+      setEditingId(null)
+      load()
+    }
+    catch(e) { toast.error(e) }
+    finally { setAdding(false) }
+  }
+
+  const openEdit = (s) => {
+    setEditingId(s.id)
+    setForm({
+      name: s.name || '',
+      roll_no: s.roll_no || '',
+      phone: s.phone || '',
+      class_section: s.class_section || '',
+      parent_name: s.parent_name || '',
+      parent_phone: s.parent_phone || ''
+    })
+    setShowEdit(true)
+  }
 
   const bulkUpload = async e => {
     const file = e.target.files[0]; if (!file) return
     const fd = new FormData(); fd.append('file', file)
     try {
       const r = await studentAPI.bulkUpload(fd)
-      toast.success(r.message)
+      toast.success(r.message || 'Bulk upload complete')
       load()
     } catch(e) { toast.error(e) }
     e.target.value = ''
   }
 
   const deleteStudent = async id => {
-    if (!confirm('Delete this student?')) return
-    try { await studentAPI.delete(id); toast.success('Deleted'); load() }
+    if (!confirm('Permanent Delete? This will remove all attendance and records associated with this student.')) return
+    try { await studentAPI.delete(id); toast.success('Permanently deleted'); load() }
     catch(e) { toast.error(e) }
   }
 
@@ -67,7 +92,7 @@ export function TeacherStudents() {
   const f = (k,v) => setForm(p => ({...p,[k]:v}))
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-extrabold">👥 Students</h1>
@@ -75,7 +100,7 @@ export function TeacherStudents() {
         </div>
         <div className="flex gap-3">
           <button onClick={() => fileRef.current.click()} className="btn-ghost text-sm">📤 Bulk CSV Upload</button>
-          <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">+ Add Student</button>
+          <button onClick={() => { setForm({ name:'', roll_no:'', phone:'', class_section:'', parent_name:'', parent_phone:'' }); setShowAdd(true); }} className="btn-primary text-sm">+ Add Student</button>
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={bulkUpload} />
         </div>
       </div>
@@ -86,7 +111,7 @@ export function TeacherStudents() {
       </div>
 
       {/* Search */}
-      <input className="input mb-4" placeholder="🔍 Search by name, roll number or phone..."
+      <input className="input mb-4" placeholder="🔍  Search by name, roll number or phone..."
         value={search} onChange={e => setSearch(e.target.value)} />
 
       {/* Table */}
@@ -98,34 +123,50 @@ export function TeacherStudents() {
                 <tr className="border-b border-white/[0.06] text-left">
                   <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Student</th>
                   <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Roll No</th>
-                  <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Phone</th>
                   <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Class</th>
+                  <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Attendance</th>
                   <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-3 text-xs text-muted font-semibold uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s,i) => (
-                  <tr key={s.id} className={`border-b border-white/[0.04] hover:bg-white/[0.02] ${i%2===0?'':'bg-white/[0.01]'}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={s.name} size="sm" />
-                        <span className="font-medium">{s.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted font-mono">{s.roll_no}</td>
-                    <td className="px-4 py-3 text-muted">{s.phone}</td>
-                    <td className="px-4 py-3 text-muted">{s.class_section}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${s.is_verified ? 'bg-green/10 text-green' : 'bg-orange/10 text-orange'}`}>
-                        {s.is_verified ? 'Verified' : 'Pending'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => deleteStudent(s.id)} className="text-xs text-muted hover:text-red transition-colors">Delete</button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((s,i) => {
+                  const pct = s.total_periods > 0 ? Math.round((s.attendance_count / s.total_periods) * 100) : 0;
+                  return (
+                    <tr key={s.id} className={`border-b border-white/[0.04] hover:bg-white/[0.02] ${i%2===0?'':'bg-white/[0.01]'}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={s.name} size="sm" />
+                          <div>
+                            <p className="font-medium">{s.name}</p>
+                            <p className="text-[10px] text-muted">{s.phone}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted font-mono">{s.roll_no}</td>
+                      <td className="px-4 py-3 text-muted">{s.class_section}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                           <div className="flex-1 bg-white/5 h-1.5 rounded-full overflow-hidden max-w-[60px]">
+                              <div className={`h-full rounded-full ${pct >= 75 ? 'bg-green' : pct >= 60 ? 'bg-orange' : 'bg-red'}`} style={{width: `${pct}%`}} />
+                           </div>
+                           <span className={`text-xs font-bold ${pct >= 75 ? 'text-green' : pct >= 60 ? 'text-orange' : 'text-red'}`}>{pct}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] font-bold uppercase tracking-tight px-2 py-0.5 rounded-full ${s.is_verified ? 'bg-green/10 text-green' : 'bg-orange/10 text-orange'}`}>
+                          {s.is_verified ? 'Verified' : 'Pending'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => openEdit(s)} className="text-xs text-accent hover:underline">Edit</button>
+                          <button onClick={() => deleteStudent(s.id)} className="text-xs text-muted hover:text-red transition-colors">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -143,13 +184,29 @@ export function TeacherStudents() {
           </button>
         </form>
       </Modal>
+
+      {/* Edit student modal */}
+      <Modal open={showEdit} onClose={() => { setShowEdit(false); setEditingId(null); }} title="Update Student Info">
+        <form onSubmit={editStudent} className="space-y-3">
+          {[['name','Full Name'],['roll_no','Roll Number'],['phone','Phone'],['class_section','Class Section'],['parent_name','Parent Name'],['parent_phone','Parent Phone']].map(([k,l]) => (
+            <div key={k}>
+              <label className="text-[10px] uppercase font-bold text-muted ml-1 mb-1 block">{l}</label>
+              <input className="input" placeholder={l} required={['name','roll_no','phone','class_section'].includes(k)}
+                value={form[k]} onChange={e=>f(k,e.target.value)} />
+            </div>
+          ))}
+          <button type="submit" className="btn-primary w-full py-3 mt-2 flex items-center justify-center gap-2">
+            {adding ? <Spinner size="sm"/> : 'Update Student'}
+          </button>
+        </form>
+      </Modal>
     </div>
   )
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 // LEAVES PAGE
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 export function TeacherLeaves() {
   const [leaves, setLeaves] = useState([])
   const [filter, setFilter] = useState('pending')
@@ -216,9 +273,9 @@ export function TeacherLeaves() {
   )
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 // REPORTS PAGE
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 export function TeacherReports() {
   const [cls,      setCls]     = useState('')
   const [report,   setReport]  = useState(null)
@@ -253,7 +310,7 @@ export function TeacherReports() {
         <button onClick={load} className="btn-primary px-6">Generate</button>
         {report && (
           <button onClick={sendReport} disabled={sending} className="btn-green px-6 flex items-center gap-2">
-            {sending ? <Spinner size="sm"/> : '📨 Send to Parents'}
+            {sending ? <Spinner size="sm"/> : '📧 Send to Parents'}
           </button>
         )}
       </div>
@@ -317,9 +374,9 @@ export function TeacherReports() {
   )
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 // SETTINGS PAGE
-// ══════════════════════════════════════════════════════════════════════════════
+// ==============================================================================
 export function TeacherSettings() {
   const [toggle, setToggle] = useState({ sms: true, fcm: true, weeklyReport: true, liveness: true, autoVerify: true, lowLight: false })
   const t = k => setToggle(p => ({...p,[k]:!p[k]}))
